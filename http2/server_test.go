@@ -1612,8 +1612,9 @@ func TestServer_Rejects_PrioritySelfDependence(t *testing.T) {
 func TestServer_Rejects_PushPromise(t *testing.T) {
 	testServerRejectsConn(t, func(st *serverTester) {
 		pp := PushPromiseParam{
-			StreamID:  1,
-			PromiseID: 3,
+			StreamID:   1,
+			PromiseID:  3,
+			EndHeaders: true,
 		}
 		if err := st.fr.WritePushPromise(pp); err != nil {
 			t.Fatal(err)
@@ -3548,6 +3549,48 @@ func TestCheckValidHTTP2Request(t *testing.T) {
 		got := checkValidHTTP2RequestHeaders(tt.h)
 		if !equalError(got, tt.want) {
 			t.Errorf("%d. checkValidHTTP2Request = %v; want %v", i, got, tt.want)
+		}
+	}
+}
+
+func TestCheckValidPushPromiseRequest(t *testing.T) {
+	tests := []struct {
+		h    http.Header
+		want error
+	}{
+		{
+			h:    http.Header{"Foo": {""}},
+			want: nil,
+		},
+		{
+			h:    http.Header{"Content-Encoding": {""}},
+			want: errors.New(`promised request cannot include body related header "Content-Encoding"`),
+		},
+		{
+			h:    http.Header{"Content-Length": {""}},
+			want: errors.New(`promised request cannot include body related header "Content-Length"`),
+		},
+		{
+			h:    http.Header{"Expect": {""}},
+			want: errors.New(`promised request cannot include body related header "Expect"`),
+		},
+		{
+			h:    http.Header{"Te": {""}},
+			want: errors.New(`promised request cannot include body related header "Te"`),
+		},
+		{
+			h:    http.Header{"Trailer": {""}},
+			want: errors.New(`promised request cannot include body related header "Trailer"`),
+		},
+		{
+			h:    http.Header{"Host": {""}},
+			want: errors.New(`promised URL must be absolute so "Host" header disallowed`),
+		},
+	}
+	for i, tt := range tests {
+		got := checkValidPushPromiseRequestHeaders(tt.h)
+		if !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("%d. checkValidPushPromiseRequest = %v; want %v", i, got, tt.want)
 		}
 	}
 }
