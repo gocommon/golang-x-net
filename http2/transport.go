@@ -118,6 +118,7 @@ type Transport struct {
 	// that can be concurrently pushed by the server, for example, by setting
 	// SETTINGS_MAX_CONCURRENT_STREAMS.
 	PushHandler PushHandler
+	UnsolicitedPushHandler PushHandler
 
 	// t1, if non-nil, is the standard library Transport using
 	// this transport. Its settings are used (but not its
@@ -602,7 +603,7 @@ func (t *Transport) dialTLSDefault(network, addr string, cfg *tls.Config) (net.C
 	}
 	state := cn.ConnectionState()
 	if p := state.NegotiatedProtocol; p != NextProtoTLS {
-		return nil, fmt.Errorf("http2: unexpected ALPN protocol %q; want %q", p, NextProtoTLS)
+		t.vlogf("http2: unexpected ALPN protocol %q; want %q", p, NextProtoTLS)
 	}
 	if !state.NegotiatedProtocolIsMutual {
 		return nil, errors.New("http2: could not negotiate protocol mutually")
@@ -1792,7 +1793,30 @@ func (rl *clientConnReadLoop) processHeaders(f *MetaHeadersFrame) error {
 		// We'd get here if we canceled a request while the
 		// server had its response still in flight. So if this
 		// was just something we canceled, ignore it.
-		return nil
+		// Or create an unsolicited push request
+		// cc.vlogf("Get unsolicited headers, stream %d", f.StreamID)
+		if rl.cc.t.UnsolicitedPushHandler == nil {
+			return nil
+		}
+		if f.StreamID%2 != 0 {
+			return nil
+		}
+		rl.cc.mu.Lock()
+		if f.StreamID <= rl.cc.highestPromiseID {
+			rl.cc.mu.Unlock()
+			return nil
+		}
+		rl.cc.highestPromiseID = f.StreamID
+		cs = rl.cc.newStreamWithId(f.StreamID, false)
+		rl.cc.mu.Unlock()
+		cs.req = &http.Request{
+			Proto:      "HTTP/2.0",
+			ProtoMajor: 2,
+		}
+		pr := &PushedRequest{
+			pushedStream: cs,
+		}
+		go handlePushEarlyReturnCancel(rl.cc.t.UnsolicitedPushHandler, pr)
 	}
 	if f.StreamEnded() {
 		cs.gotEndStream = true

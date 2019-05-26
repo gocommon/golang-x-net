@@ -1689,6 +1689,31 @@ func summarizeFrame(f Frame) string {
 	var buf bytes.Buffer
 	f.Header().writeDebug(&buf)
 	switch f := f.(type) {
+	case *MetaPushPromiseFrame:
+		fmt.Fprintf(&buf, " promiseID=%d", f.PromiseID)
+		for n, field := range f.Fields {
+			if n == 0 {
+				buf.WriteString(", headers:")
+			}
+			fmt.Fprintf(&buf, " %v=%v,", field.Name, field.Value)
+		}
+		if len(f.Fields) > 0 {
+			buf.Truncate(buf.Len() - 1) // remove trailing comma
+		}
+	case *MetaHeadersFrame:
+		if !f.HeadersFrame.Priority.IsZero() {
+			p := f.HeadersFrame.Priority
+			fmt.Fprintf(&buf, " e=%t streamDep=%d weight=%d", p.Exclusive, p.StreamDep, p.Weight)
+		}
+		for n, field := range f.Fields {
+			if n == 0 {
+				buf.WriteString(", headers:")
+			}
+			fmt.Fprintf(&buf, " %v=%v,", field.Name, field.Value)
+		}
+		if len(f.Fields) > 0 {
+			buf.Truncate(buf.Len() - 1) // remove trailing comma
+		}
 	case *SettingsFrame:
 		n := 0
 		f.ForeachSetting(func(s Setting) error {
