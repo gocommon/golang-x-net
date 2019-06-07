@@ -1268,10 +1268,21 @@ func (cs *clientStream) writeRequestBody(body io.Reader, bodyCloser io.Closer) (
 
 	req := cs.req
 	hasTrailers := req.Trailer != nil
+	remainLen := actualContentLength(req)
+	hasContentLen := remainLen != -1
 
 	var sawEOF bool
 	for !sawEOF {
-		n, err := body.Read(buf)
+		n, err := body.Read(buf[:len(buf)-1])
+		if hasContentLen {
+			remainLen -= int64(n)
+			if remainLen == 0 && err == nil {
+				var n1 int
+				n1, err = body.Read(buf[n:])
+				n += n1
+				remainLen -= int64(n1)
+			}
+		}
 		if err == io.EOF {
 			sawEOF = true
 			err = nil
